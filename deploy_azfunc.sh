@@ -8,7 +8,7 @@ exit 1
 fi
 ####
 echo "ziping deployment package"
-zip -r deployment.zip handler host.json HttpTriggerPGP/ EventGridTriggerBlobCreated/
+zip -r deployment.zip handler host.json HttpTriggerPGP/ EventGridTriggerBlobCreated/ BlobTriggerPGP/
 if [ "$?" != "0" ]; then
 echo "[Error] ziping!" 1>&2
 exit 1

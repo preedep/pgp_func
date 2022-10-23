@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
-	"github.com/ProtonMail/gopenpgp/v2/helper"
 	"io"
 	"log"
 	"net/http"
@@ -13,6 +11,9 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
+	"github.com/ProtonMail/gopenpgp/v2/helper"
 )
 
 type EventGridEvent struct {
@@ -241,6 +242,31 @@ func createBlobClientWithSaaSKey(url string, saasKey string) (*azblob.Client, er
 	client, err := azblob.NewClientWithNoCredential(newUrl, nil)
 	return client, err
 }
+
+/*
+Blob Trigger Handler
+*/
+func pgpBlobTriggerHandler(w http.ResponseWriter, r *http.Request) {
+	var invokeRequest InvokeRequest
+	d := json.NewDecoder(r.Body)
+	err := d.Decode(&invokeRequest)
+	if err != nil {
+		log.Fatalf("Decode invoke request : %v\n", err)
+		return
+	}
+	if val, ok := invokeRequest.Data["myBlob"]; ok {
+		marshalJSON, err := val.MarshalJSON()
+		if err != nil {
+			LogAndPanic(err)
+			return
+		}
+		PrintAndLog(fmt.Sprintf("Blob Payload %s", string(marshalJSON)))
+	}
+}
+
+/*
+EventGrid Trigger Handler
+*/
 func pgpEventGridBlobCreatedTriggerHandler(w http.ResponseWriter, r *http.Request) {
 
 	var invokeRequest InvokeRequest
@@ -357,6 +383,7 @@ func main() {
 	}
 	http.HandleFunc("/api/HttpTriggerPGP", pgpTriggerHandler)
 	http.HandleFunc("/EventGridTriggerBlobCreated", pgpEventGridBlobCreatedTriggerHandler)
+	http.HandleFunc("/BlobTriggerPGP", pgpBlobTriggerHandler)
 
 	log.Printf("About to listen on %s. Go to https://127.0.0.1%s/", listenAddr, listenAddr)
 	log.Fatal(http.ListenAndServe(listenAddr, nil))
