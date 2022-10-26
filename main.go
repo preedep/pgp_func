@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
-	"github.com/ProtonMail/gopenpgp/v2/helper"
 )
 
 const pubkey = `-----BEGIN PGP PUBLIC KEY BLOCK-----
@@ -306,8 +305,12 @@ func pgpHttpTriggerHandler(w http.ResponseWriter, r *http.Request) {
 			LogAndPanic(w, err)
 			return
 		}
-
-		data, err := helper.EncryptBinaryMessageArmored(pubkey, buf)
+		pubEntity, err := GetEntity([]byte(pubkey), []byte{})
+		if err != nil {
+			LogAndPanic(w, err)
+			return
+		}
+		data, err := Encrypt(pubEntity, buf) //helper.EncryptBinaryMessageArmored(pubkey, buf)
 		if err != nil {
 			LogAndPanic(w, err)
 			return
@@ -392,7 +395,12 @@ func pgpEventGridBlobCreatedTriggerHandler(w http.ResponseWriter, r *http.Reques
 				return
 			}
 
-			stream, err := client.DownloadStream(context.TODO(), "datas", sourceBlobName, nil)
+			stream, err := client.DownloadStream(context.TODO(),
+				"datas",
+				sourceBlobName,
+				nil,
+			)
+
 			if err != nil {
 				LogAndPanic(w, err)
 				return
@@ -406,7 +414,12 @@ func pgpEventGridBlobCreatedTriggerHandler(w http.ResponseWriter, r *http.Reques
 				LogAndPanic(w, err)
 				return
 			}
-			data, err := helper.EncryptBinaryMessageArmored(pubkey, buf)
+			pubEntity, err := GetEntity([]byte(pubkey), []byte{})
+			if err != nil {
+				LogAndPanic(w, err)
+				return
+			}
+			data, err := Encrypt(pubEntity, buf) //helper.EncryptBinaryMessageArmored(pubkey, buf)
 			if err != nil {
 				LogAndPanic(w, err)
 				return
