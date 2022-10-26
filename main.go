@@ -195,22 +195,8 @@ type EventGridEvent struct {
 	EventTime       time.Time `json:"eventTime"`
 }
 
-type BlobModifiedLogicApp struct {
-	ID             string      `json:"Id"`
-	Name           string      `json:"Name"`
-	DisplayName    string      `json:"DisplayName"`
-	Path           string      `json:"Path"`
-	LastModified   time.Time   `json:"LastModified"`
-	Size           int         `json:"Size"`
-	MediaType      string      `json:"MediaType"`
-	IsFolder       bool        `json:"IsFolder"`
-	ETag           string      `json:"ETag"`
-	FileLocator    string      `json:"FileLocator"`
-	LastModifiedBy interface{} `json:"LastModifiedBy"`
-}
-
 type BlobPGPEncryptionRequest struct {
-	AccountName string `json:"AccountName`
+	AccountName string `json:"AccountName"`
 	Name        string `json:"Name"`
 	DisplayName string `json:"DisplayName"`
 	Path        string `json:"Path"`
@@ -245,11 +231,40 @@ func getFileName(url string) string {
 	sourceBlobName := url[lastIdx+1:]
 	return sourceBlobName
 }
+
 func createBlobClientWithSaaSKey(url string, saasKey string) (*azblob.Client, error) {
 	u, _ := bloburl.Parse(url)
 	newUrl := fmt.Sprintf("https://%s/?%s", u.Hostname(), saasKey)
 	client, err := azblob.NewClientWithNoCredential(newUrl, nil)
 	return client, err
+}
+func readDataFromUrl(reader io.ReadCloser, contentLenght int64) ([]byte, error) {
+	defer func(reader io.ReadCloser) {
+		err := reader.Close()
+		if err != nil {
+			panic(err)
+		}
+	}(reader)
+
+	if contentLenght == 0 {
+		contentLenght = 1024
+	}
+	buf := make([]byte, contentLenght)
+	for {
+		n, err := reader.Read(buf)
+		if err == io.EOF {
+			// there is no more data to read
+			PrintAndLog("EOF")
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		if n > 0 {
+			fmt.Print(buf[:n])
+		}
+	}
+	return buf, nil
 }
 
 /*
@@ -265,7 +280,6 @@ func pgpHttpTriggerHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		PrintAndLog(fmt.Sprintf("Path name %s , File name %s", blobModified.Path, blobModified.Name))
-
 		saasKeySrc := ""
 		if k, ok := os.LookupEnv("AZURE_BLOB_STORAGE_SAAS_KEY_NOPGP_SRC"); ok {
 			saasKeySrc = k
@@ -279,41 +293,18 @@ func pgpHttpTriggerHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		PrintAndLog("Create blob client completed")
-
 		stream, err := client.DownloadStream(context.TODO(), blobModified.Path, blobModified.Name, nil)
 		if err != nil {
 			LogAndPanic(w, err)
 			return
 		}
-
 		PrintAndLog(fmt.Sprintf("Content lenght : %d", *stream.ContentLength))
 		reader := stream.Body
-		defer func(reader io.ReadCloser) {
-			err := reader.Close()
-			if err != nil {
-				LogAndPanic(w, err)
-			}
-		}(reader)
-		// read 1024 bytes at a time
 		contentLenght := *stream.ContentLength
-		if contentLenght == 0 {
-			contentLenght = 1024
-		}
-		buf := make([]byte, contentLenght)
-		for {
-			n, err := reader.Read(buf)
-			if err == io.EOF {
-				// there is no more data to read
-				PrintAndLog("EOF")
-				break
-			}
-			if err != nil {
-				LogAndPanic(w, err)
-				continue
-			}
-			if n > 0 {
-				fmt.Print(buf[:n])
-			}
+		buf, err := readDataFromUrl(reader, contentLenght)
+		if err != nil {
+			LogAndPanic(w, err)
+			return
 		}
 
 		data, err := helper.EncryptBinaryMessageArmored(pubkey, buf)
@@ -336,7 +327,12 @@ func pgpHttpTriggerHandler(w http.ResponseWriter, r *http.Request) {
 				LogAndPanic(w, err)
 				return
 			}
-			_, err = clientDest.UploadBuffer(context.TODO(), "output-pgp", fmt.Sprintf("%s.adf.pgp", sourceBlobName), []byte(data), nil)
+			_, err = clientDest.UploadBuffer(context.TODO(),
+				"output-pgp",
+				fmt.Sprintf("%s.adf.pgp", sourceBlobName),
+				[]byte(data),
+				nil,
+			)
 			if err != nil {
 				LogAndPanic(w, err)
 				return
@@ -354,30 +350,6 @@ func pgpHttpTriggerHandler(w http.ResponseWriter, r *http.Request) {
 	//json.Unmarshal(w)
 	w.WriteHeader(200)
 }
-
-/*
-Blob Trigger Handler
-*/
-/*
-func pgpBlobTriggerHandler(w http.ResponseWriter, r *http.Request) {
-	var invokeRequest InvokeRequest
-	d := json.NewDecoder(r.Body)
-	err := d.Decode(&invokeRequest)
-	if err != nil {
-		log.Fatalf("Decode invoke request : %v\n", err)
-		return
-	}
-	if val, ok := invokeRequest.Data["myBlob"]; ok {
-		marshalJSON, err := val.MarshalJSON()
-		if err != nil {
-			LogAndPanic(w, err)
-			return
-		}
-		PrintAndLog(fmt.Sprintf("Blob Payload %s", string(marshalJSON)))
-	}
-	w.WriteHeader(200)
-}
-*/
 
 /*
 EventGrid Trigger Handler
@@ -428,34 +400,12 @@ func pgpEventGridBlobCreatedTriggerHandler(w http.ResponseWriter, r *http.Reques
 
 			PrintAndLog(fmt.Sprintf("Content lenght : %d", *stream.ContentLength))
 			reader := stream.Body
-			defer func(reader io.ReadCloser) {
-				err := reader.Close()
-				if err != nil {
-					LogAndPanic(w, err)
-				}
-			}(reader)
-			// read 1024 bytes at a time
 			contentLenght := *stream.ContentLength
-			if contentLenght == 0 {
-				contentLenght = 1024
+			buf, err := readDataFromUrl(reader, contentLenght)
+			if err != nil {
+				LogAndPanic(w, err)
+				return
 			}
-			buf := make([]byte, contentLenght)
-			for {
-				n, err := reader.Read(buf)
-				if err == io.EOF {
-					// there is no more data to read
-					PrintAndLog("EOF")
-					break
-				}
-				if err != nil {
-					LogAndPanic(w, err)
-					continue
-				}
-				if n > 0 {
-					fmt.Print(buf[:n])
-				}
-			}
-
 			data, err := helper.EncryptBinaryMessageArmored(pubkey, buf)
 			if err != nil {
 				LogAndPanic(w, err)
@@ -469,7 +419,6 @@ func pgpEventGridBlobCreatedTriggerHandler(w http.ResponseWriter, r *http.Reques
 				//lastIdx := strings.LastIndex(eventGridEvent.Data.URL, "/")
 				sourceBlobName := getFileName(eventGridEvent.Data.URL) //eventGridEvent.Data.URL[lastIdx+1:]
 				PrintAndLog(fmt.Sprintf("Source Blob Name : %s", sourceBlobName))
-
 				//u, _ := bloburl.Parse(eventGridEvent.Data.URL)
 				//newUrl := fmt.Sprintf("https://%s/?%s", u.Hostname(), saasKeyDest)
 				clientDest, err := createBlobClientWithSaaSKey(eventGridEvent.Data.URL, saasKeyDest) //azblob.NewClientWithNoCredential(newUrl, nil)
@@ -477,7 +426,13 @@ func pgpEventGridBlobCreatedTriggerHandler(w http.ResponseWriter, r *http.Reques
 					LogAndPanic(w, err)
 					return
 				}
-				_, err = clientDest.UploadBuffer(context.TODO(), "output-pgp", fmt.Sprintf("%s.pgp", sourceBlobName), []byte(data), nil)
+				_, err = clientDest.UploadBuffer(context.TODO(),
+					"output-pgp",
+					fmt.Sprintf("%s.pgp", sourceBlobName),
+					[]byte(data),
+					nil,
+				)
+
 				if err != nil {
 					LogAndPanic(w, err)
 					return
