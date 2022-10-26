@@ -16,30 +16,6 @@ import (
 	"github.com/ProtonMail/gopenpgp/v2/helper"
 )
 
-type EventGridEvent struct {
-	Topic     string `json:"topic"`
-	Subject   string `json:"subject"`
-	EventType string `json:"eventType"`
-	ID        string `json:"id"`
-	Data      struct {
-		API                string `json:"api"`
-		ClientRequestID    string `json:"clientRequestId"`
-		RequestID          string `json:"requestId"`
-		ETag               string `json:"eTag"`
-		ContentType        string `json:"contentType"`
-		ContentLength      int    `json:"contentLength"`
-		BlobType           string `json:"blobType"`
-		URL                string `json:"url"`
-		Sequencer          string `json:"sequencer"`
-		StorageDiagnostics struct {
-			BatchID string `json:"batchId"`
-		} `json:"storageDiagnostics"`
-	} `json:"data"`
-	DataVersion     string    `json:"dataVersion"`
-	MetadataVersion string    `json:"metadataVersion"`
-	EventTime       time.Time `json:"eventTime"`
-}
-
 const pubkey = `-----BEGIN PGP PUBLIC KEY BLOCK-----
 Version: Keybase OpenPGP v1.0.0
 Comment: https://keybase.io/crypto
@@ -195,15 +171,62 @@ iokzFmxBWTLSx1nTvtbLfa0phD/FuCocXBzqhO5Zim9wVSsSwl4yyA==
 =b7zP
 -----END PGP PRIVATE KEY BLOCK-----` // encrypted private key
 
+type EventGridEvent struct {
+	Topic     string `json:"topic"`
+	Subject   string `json:"subject"`
+	EventType string `json:"eventType"`
+	ID        string `json:"id"`
+	Data      struct {
+		API                string `json:"api"`
+		ClientRequestID    string `json:"clientRequestId"`
+		RequestID          string `json:"requestId"`
+		ETag               string `json:"eTag"`
+		ContentType        string `json:"contentType"`
+		ContentLength      int    `json:"contentLength"`
+		BlobType           string `json:"blobType"`
+		URL                string `json:"url"`
+		Sequencer          string `json:"sequencer"`
+		StorageDiagnostics struct {
+			BatchID string `json:"batchId"`
+		} `json:"storageDiagnostics"`
+	} `json:"data"`
+	DataVersion     string    `json:"dataVersion"`
+	MetadataVersion string    `json:"metadataVersion"`
+	EventTime       time.Time `json:"eventTime"`
+}
+
+type BlobModifiedLogicApp struct {
+	ID             string      `json:"Id"`
+	Name           string      `json:"Name"`
+	DisplayName    string      `json:"DisplayName"`
+	Path           string      `json:"Path"`
+	LastModified   time.Time   `json:"LastModified"`
+	Size           int         `json:"Size"`
+	MediaType      string      `json:"MediaType"`
+	IsFolder       bool        `json:"IsFolder"`
+	ETag           string      `json:"ETag"`
+	FileLocator    string      `json:"FileLocator"`
+	LastModifiedBy interface{} `json:"LastModifiedBy"`
+}
+
+type BlobPGPEncryptionRequest struct {
+	AccountName string `json:"AccountName`
+	Name        string `json:"Name"`
+	DisplayName string `json:"DisplayName"`
+	Path        string `json:"Path"`
+}
+type BlobPGPEncryptionResponse struct {
+}
+
 // PrintAndLog writes to stdout and to a logger.
 func PrintAndLog(message string) {
 	log.Println(message)
 	fmt.Println(message)
 }
 
-func LogAndPanic(err error) {
+func LogAndPanic(w http.ResponseWriter, err error) {
 	PrintAndLog(err.Error())
-	panic(err)
+	http.Error(w, err.Error(), http.StatusInternalServerError)
 }
 
 type InvokeRequest struct {
@@ -215,20 +238,6 @@ type InvokeResponse struct {
 	Outputs     map[string]interface{}
 	Logs        []string
 	ReturnValue interface{}
-}
-
-func pgpTriggerHandler(w http.ResponseWriter, r *http.Request) {
-	message := "Pass a name in the query string for a personalized response. \n"
-	name := r.URL.Query().Get("name")
-
-	if name != "" {
-		message = fmt.Sprintf("Hello, %s!\n", name)
-	}
-
-	_, err := fmt.Fprint(w, message)
-	if err != nil {
-		return
-	}
 }
 
 func getFileName(url string) string {
@@ -244,8 +253,112 @@ func createBlobClientWithSaaSKey(url string, saasKey string) (*azblob.Client, er
 }
 
 /*
+HTTP Trigger Handler
+*/
+func pgpHttpTriggerHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method == "POST" {
+		var blobModified BlobPGPEncryptionRequest
+		err := json.NewDecoder(r.Body).Decode(&blobModified)
+		if err != nil {
+			//http.Error(w, err.Error(), http.StatusBadRequest)
+			LogAndPanic(w, err)
+			return
+		}
+		PrintAndLog(fmt.Sprintf("Path name %s , File name %s", blobModified.Path, blobModified.Name))
+
+		saasKeySrc := ""
+		if k, ok := os.LookupEnv("AZURE_BLOB_STORAGE_SAAS_KEY_NOPGP_SRC"); ok {
+			saasKeySrc = k
+		}
+		//nickdevblob101.blob.core.windows.net
+		url := fmt.Sprintf("https://%s.blob.core.windows.net", blobModified.AccountName)
+		PrintAndLog(fmt.Sprintf("URL %s", url))
+		client, err := createBlobClientWithSaaSKey(url, saasKeySrc) //azblob.NewClientWithNoCredential(newUrl, nil)
+		if err != nil {
+			LogAndPanic(w, err)
+			return
+		}
+		PrintAndLog("Create blob client completed")
+
+		stream, err := client.DownloadStream(context.TODO(), blobModified.Path, blobModified.Name, nil)
+		if err != nil {
+			LogAndPanic(w, err)
+			return
+		}
+
+		PrintAndLog(fmt.Sprintf("Content lenght : %d", *stream.ContentLength))
+		reader := stream.Body
+		defer func(reader io.ReadCloser) {
+			err := reader.Close()
+			if err != nil {
+				LogAndPanic(w, err)
+			}
+		}(reader)
+		// read 1024 bytes at a time
+		contentLenght := *stream.ContentLength
+		if contentLenght == 0 {
+			contentLenght = 1024
+		}
+		buf := make([]byte, contentLenght)
+		for {
+			n, err := reader.Read(buf)
+			if err == io.EOF {
+				// there is no more data to read
+				PrintAndLog("EOF")
+				break
+			}
+			if err != nil {
+				LogAndPanic(w, err)
+				continue
+			}
+			if n > 0 {
+				fmt.Print(buf[:n])
+			}
+		}
+
+		data, err := helper.EncryptBinaryMessageArmored(pubkey, buf)
+		if err != nil {
+			LogAndPanic(w, err)
+			return
+		} else {
+			/*save to destination*/
+			saasKeyDest := ""
+			if k, ok := os.LookupEnv("AZURE_BLOB_STORAGE_SAAS_KEY_DEST"); ok {
+				saasKeyDest = k
+			}
+			sourceBlobName := blobModified.Name //eventGridEvent.Data.URL[lastIdx+1:]
+			PrintAndLog(fmt.Sprintf("Source Blob Name : %s", sourceBlobName))
+
+			//u, _ := bloburl.Parse(eventGridEvent.Data.URL)
+			//newUrl := fmt.Sprintf("https://%s/?%s", u.Hostname(), saasKeyDest)
+			clientDest, err := createBlobClientWithSaaSKey(url, saasKeyDest) //azblob.NewClientWithNoCredential(newUrl, nil)
+			if err != nil {
+				LogAndPanic(w, err)
+				return
+			}
+			_, err = clientDest.UploadBuffer(context.TODO(), "output-pgp", fmt.Sprintf("%s.adf.pgp", sourceBlobName), []byte(data), nil)
+			if err != nil {
+				LogAndPanic(w, err)
+				return
+			}
+			PrintAndLog("Upload complete")
+			////////////////
+		}
+	} else {
+		_, err := fmt.Fprint(w, "Good job")
+		if err != nil {
+			LogAndPanic(w, err)
+			return
+		}
+	}
+	//json.Unmarshal(w)
+	w.WriteHeader(200)
+}
+
+/*
 Blob Trigger Handler
 */
+/*
 func pgpBlobTriggerHandler(w http.ResponseWriter, r *http.Request) {
 	var invokeRequest InvokeRequest
 	d := json.NewDecoder(r.Body)
@@ -257,12 +370,14 @@ func pgpBlobTriggerHandler(w http.ResponseWriter, r *http.Request) {
 	if val, ok := invokeRequest.Data["myBlob"]; ok {
 		marshalJSON, err := val.MarshalJSON()
 		if err != nil {
-			LogAndPanic(err)
+			LogAndPanic(w, err)
 			return
 		}
 		PrintAndLog(fmt.Sprintf("Blob Payload %s", string(marshalJSON)))
 	}
+	w.WriteHeader(200)
 }
+*/
 
 /*
 EventGrid Trigger Handler
@@ -279,13 +394,13 @@ func pgpEventGridBlobCreatedTriggerHandler(w http.ResponseWriter, r *http.Reques
 	if val, ok := invokeRequest.Data["eventGridEvent"]; ok {
 		marshalJSON, err := val.MarshalJSON()
 		if err != nil {
-			LogAndPanic(err)
+			LogAndPanic(w, err)
 			return
 		}
 		var eventGridEvent EventGridEvent
 		err = json.Unmarshal(marshalJSON, &eventGridEvent)
 		if err != nil {
-			LogAndPanic(err)
+			LogAndPanic(w, err)
 			return
 		}
 		if strings.EqualFold(eventGridEvent.Data.API, "putblob") {
@@ -301,13 +416,13 @@ func pgpEventGridBlobCreatedTriggerHandler(w http.ResponseWriter, r *http.Reques
 			//newUrl := fmt.Sprintf("https://%s/?%s", u.Hostname(), saasKeySrc)
 			client, err := createBlobClientWithSaaSKey(eventGridEvent.Data.URL, saasKeySrc) //azblob.NewClientWithNoCredential(newUrl, nil)
 			if err != nil {
-				LogAndPanic(err)
+				LogAndPanic(w, err)
 				return
 			}
 
 			stream, err := client.DownloadStream(context.TODO(), "datas", sourceBlobName, nil)
 			if err != nil {
-				LogAndPanic(err)
+				LogAndPanic(w, err)
 				return
 			}
 
@@ -316,7 +431,7 @@ func pgpEventGridBlobCreatedTriggerHandler(w http.ResponseWriter, r *http.Reques
 			defer func(reader io.ReadCloser) {
 				err := reader.Close()
 				if err != nil {
-					LogAndPanic(err)
+					LogAndPanic(w, err)
 				}
 			}(reader)
 			// read 1024 bytes at a time
@@ -333,16 +448,18 @@ func pgpEventGridBlobCreatedTriggerHandler(w http.ResponseWriter, r *http.Reques
 					break
 				}
 				if err != nil {
-					LogAndPanic(err)
+					LogAndPanic(w, err)
 					continue
 				}
 				if n > 0 {
 					fmt.Print(buf[:n])
 				}
 			}
+
 			data, err := helper.EncryptBinaryMessageArmored(pubkey, buf)
 			if err != nil {
-				LogAndPanic(err)
+				LogAndPanic(w, err)
+				return
 			} else {
 				/*save to destination*/
 				saasKeyDest := ""
@@ -357,12 +474,12 @@ func pgpEventGridBlobCreatedTriggerHandler(w http.ResponseWriter, r *http.Reques
 				//newUrl := fmt.Sprintf("https://%s/?%s", u.Hostname(), saasKeyDest)
 				clientDest, err := createBlobClientWithSaaSKey(eventGridEvent.Data.URL, saasKeyDest) //azblob.NewClientWithNoCredential(newUrl, nil)
 				if err != nil {
-					LogAndPanic(err)
+					LogAndPanic(w, err)
 					return
 				}
-				_, err = clientDest.UploadBuffer(context.TODO(), "output", fmt.Sprintf("%s.pgp", sourceBlobName), []byte(data), nil)
+				_, err = clientDest.UploadBuffer(context.TODO(), "output-pgp", fmt.Sprintf("%s.pgp", sourceBlobName), []byte(data), nil)
 				if err != nil {
-					LogAndPanic(err)
+					LogAndPanic(w, err)
 					return
 				}
 				PrintAndLog("Upload complete")
@@ -375,15 +492,17 @@ func pgpEventGridBlobCreatedTriggerHandler(w http.ResponseWriter, r *http.Reques
 	} else {
 		PrintAndLog("Don't have eventGridEvent")
 	}
+	w.WriteHeader(200)
 }
 func main() {
 	listenAddr := ":8080"
 	if val, ok := os.LookupEnv("FUNCTIONS_CUSTOMHANDLER_PORT"); ok {
 		listenAddr = ":" + val
 	}
-	http.HandleFunc("/api/HttpTriggerPGP", pgpTriggerHandler)
-	http.HandleFunc("/EventGridTriggerBlobCreated", pgpEventGridBlobCreatedTriggerHandler)
-	http.HandleFunc("/BlobTriggerPGP", pgpBlobTriggerHandler)
+	//http.HandleFunc("/HttpTriggerPGP", pgpTriggerHandler)
+	http.HandleFunc("/api/HttpTriggerPGP", pgpHttpTriggerHandler)                          //ADF
+	http.HandleFunc("/EventGridTriggerBlobCreated", pgpEventGridBlobCreatedTriggerHandler) //EventGridTrigger
+	//http.HandleFunc("/BlobTriggerPGP", pgpBlobTriggerHandler)
 
 	log.Printf("About to listen on %s. Go to https://127.0.0.1%s/", listenAddr, listenAddr)
 	log.Fatal(http.ListenAndServe(listenAddr, nil))

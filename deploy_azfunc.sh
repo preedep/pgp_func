@@ -1,7 +1,9 @@
 rm -rf deployment.zip
 
+az login
+
 echo "building linux bin"
-GOOS=linux GOARCH=amd64 go build -o handler main.go
+GOOS=linux GOARCH=amd64 go build -ldflags "-s -w" -o handler main.go
 if [ "$?" != "0" ]; then
 echo "[Error] building!" 1>&2
 exit 1
@@ -16,7 +18,7 @@ fi
 #####
 echo "deploying to azure function"
 az functionapp deployment source config-zip \
--g mydevresourcesg101 -n pgp-func \
+-g RG-SEA-EA-POC-001 -n nickpgpfunction \
 --src ./deployment.zip
 if [ "$?" != "0" ]; then
 echo "[Error] deploying!" 1>&2

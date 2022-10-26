@@ -5,11 +5,12 @@
     "logLevel": {
       "default": "Information",
       "Host.Results": "Error",
-      "Function": "Error",
+      "Function": "Trace",
+      "Function.EventGridTriggerBlobCreated" : "Warning",
       "Host.Aggregator": "Trace"
     },
     "console": {
-      "isEnabled": true,
+      "isEnabled": false,
       "DisableColors": true
     },
     "applicationInsights": {
