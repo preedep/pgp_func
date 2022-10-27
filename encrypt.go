@@ -51,7 +51,6 @@ func EncryptIOReader(entity *openpgp.Entity, messageReader io.Reader) ([]byte, e
 			return []byte{}, fmt.Errorf("Error copying compressor writer : %v", err)
 		}
 	*/
-
 	///
 
 	err = compressorWriter.Close()
