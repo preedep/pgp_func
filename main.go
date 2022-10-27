@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	bloburl "net/url"
@@ -242,6 +241,7 @@ func createBlobClientWithSaaSKey(url string, saasKey string) (*azblob.Client, er
 	return client, err
 }
 
+/*
 func readDataFromUrl(reader io.ReadCloser, contentLenght int64) ([]byte, error) {
 	defer func(reader io.ReadCloser) {
 		err := reader.Close()
@@ -270,6 +270,7 @@ func readDataFromUrl(reader io.ReadCloser, contentLenght int64) ([]byte, error) 
 	}
 	return buf, nil
 }
+*/
 
 /*
 HTTP Trigger Handler
@@ -413,20 +414,22 @@ func pgpEventGridBlobCreatedTriggerHandler(w http.ResponseWriter, r *http.Reques
 				return
 			}
 
-			PrintAndLog(fmt.Sprintf("Content lenght : %d", *stream.ContentLength))
-			reader := stream.Body
-			contentLenght := *stream.ContentLength
-			buf, err := readDataFromUrl(reader, contentLenght)
-			if err != nil {
-				LogAndPanic(w, err)
-				return
-			}
+			/*
+				PrintAndLog(fmt.Sprintf("Content lenght : %d", *stream.ContentLength))
+				reader := stream.Body
+				contentLenght := *stream.ContentLength
+				buf, err := readDataFromUrl(reader, contentLenght)
+				if err != nil {
+					LogAndPanic(w, err)
+					return
+				}*/
+
 			pubEntity, err := GetEntity([]byte(pubkey), []byte{})
 			if err != nil {
 				LogAndPanic(w, err)
 				return
 			}
-			data, err := Encrypt(pubEntity, buf) //helper.EncryptBinaryMessageArmored(pubkey, buf)
+			data, err := EncryptIOReader(pubEntity, stream.Body) //helper.EncryptBinaryMessageArmored(pubkey, buf)
 			if err != nil {
 				LogAndPanic(w, err)
 				return
