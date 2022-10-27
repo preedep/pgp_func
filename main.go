@@ -302,20 +302,21 @@ func pgpHttpTriggerHandler(w http.ResponseWriter, r *http.Request) {
 			LogAndPanic(w, err)
 			return
 		}
-		PrintAndLog(fmt.Sprintf("Content lenght : %d", *stream.ContentLength))
-		reader := stream.Body
-		contentLenght := *stream.ContentLength
-		buf, err := readDataFromUrl(reader, contentLenght)
-		if err != nil {
-			LogAndPanic(w, err)
-			return
-		}
+		/*
+			PrintAndLog(fmt.Sprintf("Content lenght : %d", *stream.ContentLength))
+			reader := stream.Body
+			contentLenght := *stream.ContentLength
+			buf, err := readDataFromUrl(reader, contentLenght)
+			if err != nil {
+				LogAndPanic(w, err)
+				return
+			}*/
 		pubEntity, err := GetEntity([]byte(pubkey), []byte{})
 		if err != nil {
 			LogAndPanic(w, err)
 			return
 		}
-		data, err := Encrypt(pubEntity, buf) //helper.EncryptBinaryMessageArmored(pubkey, buf)
+		data, err := EncryptIOReader(pubEntity, stream.Body) //helper.EncryptBinaryMessageArmored(pubkey, buf)
 		if err != nil {
 			LogAndPanic(w, err)
 			return
@@ -335,6 +336,7 @@ func pgpHttpTriggerHandler(w http.ResponseWriter, r *http.Request) {
 				LogAndPanic(w, err)
 				return
 			}
+
 			_, err = clientDest.UploadBuffer(context.TODO(),
 				"output-pgp",
 				fmt.Sprintf("%s.adf.pgp", sourceBlobName),
@@ -478,7 +480,6 @@ func main() {
 	fmt.Println(pubKey)
 	fmt.Println(privKey)
 	fmt.Println(passphrase)
-
 	///
 	/// example get credential
 	///
@@ -494,7 +495,6 @@ func main() {
 				log.Println("Token ", token)
 			}
 		}*/
-	
 	///
 
 	//http.HandleFunc("/HttpTriggerPGP", pgpTriggerHandler)

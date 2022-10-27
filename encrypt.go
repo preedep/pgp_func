@@ -12,9 +12,15 @@ import (
 )
 
 func Encrypt(entity *openpgp.Entity, message []byte) ([]byte, error) {
+	return EncryptIOReader(entity, bytes.NewReader(message))
+}
+
+/*
+messageReader read until EOF
+*/
+func EncryptIOReader(entity *openpgp.Entity, messageReader io.Reader) ([]byte, error) {
 	// Create buffer to write output to
 	buf := new(bytes.Buffer)
-
 	// Create encoder
 	encoderWriter, err := armor.Encode(buf, "Message", make(map[string]string))
 	if err != nil {
@@ -32,14 +38,13 @@ func Encrypt(entity *openpgp.Entity, message []byte) ([]byte, error) {
 	if err != nil {
 		return []byte{}, fmt.Errorf("Invalid compression level: %v", err)
 	}
-
 	// Write message to compressor
-	messageReader := bytes.NewReader(message)
+	//amessageReader := bytes.NewReader(message)
 	_, err = io.Copy(compressorWriter, messageReader)
 	if err != nil {
 		return []byte{}, fmt.Errorf("Error writing data to compressor: %v", err)
 	}
-
+	
 	err = compressorWriter.Close()
 	if err != nil {
 		return nil, err
