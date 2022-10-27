@@ -3,7 +3,7 @@ rm -rf deployment.zip
 az login
 
 echo "building linux bin"
-GOOS=linux GOARCH=amd64 go build -ldflags "-s -w" -o handler *.go
+GOOS=linux GOARCH=amd64 go build -ldflags "-s -w" -o handler 
 if [ "$?" != "0" ]; then
 echo "[Error] building!" 1>&2
 exit 1

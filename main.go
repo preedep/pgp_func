@@ -170,6 +170,10 @@ iokzFmxBWTLSx1nTvtbLfa0phD/FuCocXBzqhO5Zim9wVSsSwl4yyA==
 =b7zP
 -----END PGP PRIVATE KEY BLOCK-----` // encrypted private key
 
+var pubKey string = ""
+var privKey string = ""
+var passphrase string = ""
+
 type EventGridEvent struct {
 	Topic     string `json:"topic"`
 	Subject   string `json:"subject"`
@@ -237,6 +241,7 @@ func createBlobClientWithSaaSKey(url string, saasKey string) (*azblob.Client, er
 	client, err := azblob.NewClientWithNoCredential(newUrl, nil)
 	return client, err
 }
+
 func readDataFromUrl(reader io.ReadCloser, contentLenght int64) ([]byte, error) {
 	defer func(reader io.ReadCloser) {
 		err := reader.Close()
@@ -467,6 +472,31 @@ func main() {
 	if val, ok := os.LookupEnv("FUNCTIONS_CUSTOMHANDLER_PORT"); ok {
 		listenAddr = ":" + val
 	}
+	/*
+		get azure key vault
+	*/
+	fmt.Println(pubKey)
+	fmt.Println(privKey)
+	fmt.Println(passphrase)
+
+	///
+	/// example get credential
+	///
+	/*
+		cred, err := azidentity.NewDefaultAzureCredential(nil)
+		if err != nil {
+			log.Fatalf("Azure indentity error : %v", err)
+		} else {
+			token, err := cred.GetToken(context.TODO(), policy.TokenRequestOptions{})
+			if err != nil {
+				log.Fatalf("Get Token err : %v", err)
+			} else {
+				log.Println("Token ", token)
+			}
+		}*/
+	
+	///
+
 	//http.HandleFunc("/HttpTriggerPGP", pgpTriggerHandler)
 	http.HandleFunc("/api/HttpTriggerPGP", pgpHttpTriggerHandler)                          //ADF
 	http.HandleFunc("/EventGridTriggerBlobCreated", pgpEventGridBlobCreatedTriggerHandler) //EventGridTrigger
